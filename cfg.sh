@@ -2,8 +2,6 @@
 
 export CFLAGS=-march=armv6
 
-source ~/coolstream/coolstream.sh
-
 ./configure \
 --disable-parsers \
 --enable-parser=aac \
