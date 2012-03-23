@@ -44,7 +44,8 @@ source ~/coolstream/coolstream.sh
 --disable-ffserver \
 --disable-static \
 --disable-filters \
---enable-armv6 \
+--arch=arm \
+--cpu=armv6 \
 --disable-protocols \
 --enable-protocol=file \
 --enable-bsfs \
@@ -59,7 +60,6 @@ source ~/coolstream/coolstream.sh
 --enable-cross-compile \
 --enable-shared \
 --cross-prefix=arm-cx2450x-linux-gnueabi- \
---arch=arm \
 --enable-bzlib \
 --enable-debug \
 --enable-stripping \
