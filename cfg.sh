@@ -16,15 +16,12 @@ source ~/coolstream/coolstream.sh
 --enable-parser=mpegaudio \
 --enable-parser=h264 \
 --enable-parser=vc1 \
+--enable-parser=dvdsub \
+--enable-parser=dvbsub \
 --disable-decoders \
---enable-decoder=h264 \
---enable-decoder=mpeg4video \
---enable-decoder=vc1 \
---enable-decoder=mpegvideo \
---enable-decoder=mpegaudio \
---enable-decoder=aac \
 --enable-decoder=dca \
---enable-decoder=ac3 \
+--enable-decoder=dvdsub \
+--enable-decoder=dvbsub \
 --disable-demuxers \
 --enable-demuxer=aac \
 --enable-demuxer=ac3 \
@@ -52,6 +49,9 @@ source ~/coolstream/coolstream.sh
 --enable-protocol=file \
 --enable-bsfs \
 --disable-devices \
+--disable-swresample \
+--disable-postproc \
+--disable-swscale \
 --disable-mmx     \
 --disable-altivec  \
 --disable-zlib   \
@@ -65,3 +65,11 @@ source ~/coolstream/coolstream.sh
 --enable-stripping \
 --target-os=linux \
 --prefix=/opt/newcross/arm-cx2450x-linux-gnueabi/arm-cx2450x-linux-gnueabi/sys-root/usr
+
+#--enable-decoder=h264 \
+#--enable-decoder=mpeg4video \
+#--enable-decoder=vc1 \
+#--enable-decoder=mpegvideo \
+#--enable-decoder=mpegaudio \
+#--enable-decoder=aac \
+#--enable-decoder=ac3 \
