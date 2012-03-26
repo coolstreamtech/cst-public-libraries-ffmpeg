@@ -404,6 +404,10 @@ static int decode_band_hdr(IVI4DecContext *ctx, IVIBandDesc *band,
                 av_log(avctx, AV_LOG_ERROR, "Custom quant matrix encountered!\n");
                 return AVERROR_INVALIDDATA;
             }
+            if (band->quant_mat > 21) {
+                av_log(avctx, AV_LOG_ERROR, "Invalid quant matrix encountered!\n");
+                return AVERROR_INVALIDDATA;
+            }
         }
 
         /* decode block huffman codebook */
@@ -443,6 +447,11 @@ static int decode_band_hdr(IVI4DecContext *ctx, IVIBandDesc *band,
     band->inter_scale = NULL;
 
     align_get_bits(&ctx->gb);
+
+    if (!band->scan) {
+        av_log(avctx, AV_LOG_ERROR, "band->scan not set\n");
+        return AVERROR_INVALIDDATA;
+    }
 
     return 0;
 }
@@ -512,7 +521,7 @@ static int decode_mb_info(IVI4DecContext *ctx, IVIBandDesc *band,
                     }
                 }
             } else {
-                if (band->inherit_mv) {
+                if (band->inherit_mv && ref_mb) {
                     mb->type = ref_mb->type; /* copy mb_type from corresponding reference mb */
                 } else if (ctx->frame_type == FRAMETYPE_INTRA) {
                     mb->type = 0; /* mb_type is always INTRA for intra-frames */
@@ -560,10 +569,10 @@ static int decode_mb_info(IVI4DecContext *ctx, IVIBandDesc *band,
 
             s= band->is_halfpel;
             if (mb->type)
-            if ( x +  (mv_x   >>s) +                 (y+               (mv_y   >>s))*band->pitch < 0 ||
-                 x + ((mv_x+s)>>s) + band->mb_size - 1
-                   + (y+band->mb_size - 1 +((mv_y+s)>>s))*band->pitch > band->height*band->pitch -1) {
-                av_log(avctx, AV_LOG_ERROR, "motion vector %d %d outside reference\n", x*s + mv_x, y*s + mv_y);
+            if ( x +  (mb->mv_x   >>s) +                 (y+               (mb->mv_y   >>s))*band->pitch < 0 ||
+                 x + ((mb->mv_x+s)>>s) + band->mb_size - 1
+                   + (y+band->mb_size - 1 +((mb->mv_y+s)>>s))*band->pitch > band->bufsize -1) {
+                av_log(avctx, AV_LOG_ERROR, "motion vector %d %d outside reference\n", x*s + mb->mv_x, y*s + mb->mv_y);
                 return AVERROR_INVALIDDATA;
             }
 

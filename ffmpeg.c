@@ -179,8 +179,8 @@ static int debug_ts = 0;
 
 static uint8_t *audio_buf;
 static unsigned int allocated_audio_buf_size;
-
-static uint8_t *input_tmp= NULL;
+static uint8_t *async_buf;
+static unsigned int allocated_async_buf_size;
 
 #define DEFAULT_PASS_LOGFILENAME_PREFIX "ffmpeg2pass"
 
@@ -281,7 +281,7 @@ typedef struct OutputStream {
     AVFifoBuffer *fifo;     /* for compression: one audio fifo per codec */
     FILE *logfile;
 
-    struct SwrContext *swr;
+    SwrContext *swr;
 
 #if CONFIG_AVFILTER
     AVFilterContext *output_video_filter;
@@ -476,7 +476,7 @@ static void reset_options(OptionsContext *o, int is_input)
     init_opts();
 }
 
-static int alloc_buffer(AVCodecContext *s, InputStream *ist, FrameBuffer **pbuf)
+static int alloc_buffer(InputStream *ist, AVCodecContext *s, FrameBuffer **pbuf)
 {
     FrameBuffer  *buf = av_mallocz(sizeof(*buf));
     int i, ret;
@@ -556,7 +556,7 @@ static int codec_get_buffer(AVCodecContext *s, AVFrame *frame)
     if(av_image_check_size(s->width, s->height, 0, s) || s->pix_fmt<0)
         return -1;
 
-    if (!ist->buffer_pool && (ret = alloc_buffer(s, ist, &ist->buffer_pool)) < 0)
+    if (!ist->buffer_pool && (ret = alloc_buffer(ist, s, &ist->buffer_pool)) < 0)
         return ret;
 
     buf              = ist->buffer_pool;
@@ -566,7 +566,7 @@ static int codec_get_buffer(AVCodecContext *s, AVFrame *frame)
         av_freep(&buf->base[0]);
         av_free(buf);
         ist->dr1 = 0;
-        if ((ret = alloc_buffer(s, ist, &buf)) < 0)
+        if ((ret = alloc_buffer(ist, s, &buf)) < 0)
             return ret;
     }
     buf->refcount++;
@@ -575,6 +575,10 @@ static int codec_get_buffer(AVCodecContext *s, AVFrame *frame)
     frame->type          = FF_BUFFER_TYPE_USER;
     frame->extended_data = frame->data;
     frame->pkt_pts       = s->pkt ? s->pkt->pts : AV_NOPTS_VALUE;
+    frame->width         = buf->w;
+    frame->height        = buf->h;
+    frame->format        = buf->pix_fmt;
+    frame->sample_aspect_ratio = s->sample_aspect_ratio;
 
     for (i = 0; i < FF_ARRAY_ELEMS(buf->data); i++) {
         frame->base[i]     = buf->base[i];  // XXX h264.c uses base though it shouldn't
@@ -868,15 +872,15 @@ void av_noreturn exit_program(int ret)
     av_freep(&output_files);
 
     uninit_opts();
-    av_free(audio_buf);
+    av_freep(&audio_buf);
     allocated_audio_buf_size = 0;
+    av_freep(&async_buf);
+    allocated_async_buf_size = 0;
 
 #if CONFIG_AVFILTER
     avfilter_uninit();
 #endif
     avformat_network_deinit();
-
-    av_freep(&input_tmp);
 
     if (received_sigterm) {
         av_log(NULL, AV_LOG_INFO, "Received signal %d: terminating.\n",
@@ -1126,11 +1130,38 @@ static int encode_audio_frame(AVFormatContext *s, OutputStream *ost,
     return ret;
 }
 
+static int alloc_audio_output_buf(AVCodecContext *dec, AVCodecContext *enc,
+                                  int nb_samples)
+{
+    int64_t audio_buf_samples;
+    int audio_buf_size;
+
+    /* calculate required number of samples to allocate */
+    audio_buf_samples = ((int64_t)nb_samples * enc->sample_rate + dec->sample_rate) /
+                        dec->sample_rate;
+    audio_buf_samples = 4 * audio_buf_samples + 10000; // safety factors for resampling
+    audio_buf_samples = FFMAX(audio_buf_samples, enc->frame_size);
+    if (audio_buf_samples > INT_MAX)
+        return AVERROR(EINVAL);
+
+    audio_buf_size = av_samples_get_buffer_size(NULL, enc->channels,
+                                                audio_buf_samples,
+                                                enc->sample_fmt, 32);
+    if (audio_buf_size < 0)
+        return audio_buf_size;
+
+    av_fast_malloc(&audio_buf, &allocated_audio_buf_size, audio_buf_size);
+    if (!audio_buf)
+        return AVERROR(ENOMEM);
+
+    return 0;
+}
+
 static void do_audio_out(AVFormatContext *s, OutputStream *ost,
                          InputStream *ist, AVFrame *decoded_frame)
 {
     uint8_t *buftmp;
-    int64_t audio_buf_size, size_out;
+    int64_t size_out;
 
     int frame_bytes, resample_changed;
     AVCodecContext *enc = ost->st->codec;
@@ -1140,7 +1171,6 @@ static void do_audio_out(AVFormatContext *s, OutputStream *ost,
     uint8_t *buf[AV_NUM_DATA_POINTERS];
     int size     = decoded_frame->nb_samples * dec->channels * isize;
     int planes   = av_sample_fmt_is_planar(dec->sample_fmt) ? dec->channels : 1;
-    int64_t allocated_for_size = size;
     int i;
 
     av_assert0(planes <= AV_NUM_DATA_POINTERS);
@@ -1148,21 +1178,8 @@ static void do_audio_out(AVFormatContext *s, OutputStream *ost,
     for(i=0; i<planes; i++)
         buf[i]= decoded_frame->data[i];
 
-need_realloc:
-    audio_buf_size  = (allocated_for_size + isize * dec->channels - 1) / (isize * dec->channels);
-    audio_buf_size  = (audio_buf_size * enc->sample_rate + dec->sample_rate) / dec->sample_rate;
-    audio_buf_size  = audio_buf_size * 2 + 10000; // safety factors for the deprecated resampling API
-    audio_buf_size  = FFMAX(audio_buf_size, enc->frame_size);
-    audio_buf_size *= osize * enc->channels;
-
-    if (audio_buf_size > INT_MAX) {
-        av_log(NULL, AV_LOG_FATAL, "Buffer sizes too large\n");
-        exit_program(1);
-    }
-
-    av_fast_malloc(&audio_buf, &allocated_audio_buf_size, audio_buf_size);
-    if (!audio_buf) {
-        av_log(NULL, AV_LOG_FATAL, "Out of memory in do_audio_out\n");
+    if (alloc_audio_output_buf(dec, enc, decoded_frame->nb_samples) < 0) {
+        av_log(NULL, AV_LOG_FATAL, "Error allocating audio buffer\n");
         exit_program(1);
     }
 
@@ -1251,16 +1268,21 @@ need_realloc:
                         return;
                     ist->is_start = 0;
                 } else {
-                    input_tmp = av_realloc(input_tmp, byte_delta + size);
+                    av_fast_malloc(&async_buf, &allocated_async_buf_size,
+                                   byte_delta + size);
+                    if (!async_buf) {
+                        av_log(NULL, AV_LOG_FATAL, "Out of memory in do_audio_out\n");
+                        exit_program(1);
+                    }
 
-                    if (byte_delta > allocated_for_size - size) {
-                        allocated_for_size = byte_delta + (int64_t)size;
-                        goto need_realloc;
+                    if (alloc_audio_output_buf(dec, enc, decoded_frame->nb_samples + idelta) < 0) {
+                        av_log(NULL, AV_LOG_FATAL, "Error allocating audio buffer\n");
+                        exit_program(1);
                     }
                     ist->is_start = 0;
 
                     for (i=0; i<planes; i++) {
-                        uint8_t *t = input_tmp + i*((byte_delta + size)/planes);
+                        uint8_t *t = async_buf + i*((byte_delta + size)/planes);
                         generate_silence(t, dec->sample_fmt, byte_delta/planes);
                         memcpy(t + byte_delta/planes, buf[i], size/planes);
                         buf[i] = t;
@@ -1283,7 +1305,7 @@ need_realloc:
 
     if (ost->audio_resample || ost->audio_channels_mapped) {
         buftmp = audio_buf;
-        size_out = swr_convert(ost->swr, (      uint8_t*[]){buftmp}, audio_buf_size / (enc->channels * osize),
+        size_out = swr_convert(ost->swr, (      uint8_t*[]){buftmp}, allocated_audio_buf_size / (enc->channels * osize),
                                          buf, size / (dec->channels * isize));
         if (size_out < 0) {
             av_log(NULL, AV_LOG_FATAL, "swr_convert failed\n");
@@ -2006,6 +2028,10 @@ static int transcode_audio(InputStream *ist, AVPacket *pkt, int *got_output)
     ret = avcodec_decode_audio4(avctx, decoded_frame, got_output, pkt);
     if (ret < 0) {
         return ret;
+    }
+    if (avctx->sample_rate <= 0) {
+        av_log(avctx, AV_LOG_ERROR, "Sample rate %d invalid\n", avctx->sample_rate);
+        return AVERROR_INVALIDDATA;
     }
 
     if (!*got_output) {
@@ -4796,7 +4822,7 @@ static int opt_target(OptionsContext *o, const char *opt, const char *arg)
         opt_default("maxrate", "2516000");
         opt_default("minrate", "0"); // 1145000;
         opt_default("bufsize", "1835008"); // 224*1024*8;
-        opt_default("flags", "+scan_offset");
+        opt_default("scan_offset", "1");
 
 
         opt_default("b:a", "224000");
