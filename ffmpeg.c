@@ -953,7 +953,18 @@ static void choose_sample_rate(AVStream *st, AVCodec *codec)
             }
         }
         if (best_dist) {
-            av_log(st->codec, AV_LOG_WARNING, "Requested sampling rate unsupported using closest supported (%d)\n", best);
+            int i;
+            const int *sample_rates = codec->supported_samplerates;
+            av_log(st->codec, AV_LOG_WARNING,
+                   "Requested sampling rate (%dHz) unsupported, using %dHz instead\n"
+                   "Available sampling rates for %s:",
+                   st->codec->sample_rate, best, codec->name);
+            for (i = 0; sample_rates[i]; i++) {
+                if (!sample_rates[i + 1]) av_log(st->codec, AV_LOG_WARNING, " and");
+                else if (i)               av_log(st->codec, AV_LOG_WARNING, ",");
+                av_log(st->codec, AV_LOG_WARNING, " %d", sample_rates[i]);
+            }
+            av_log(st->codec, AV_LOG_WARNING, ".\n");
         }
         st->codec->sample_rate = best;
     }
@@ -1072,7 +1083,7 @@ static int encode_audio_frame(AVFormatContext *s, OutputStream *ost,
     pkt.data = NULL;
     pkt.size = 0;
 
-    if (buf) {
+    if (buf && buf_size) {
         if (!ost->output_frame) {
             ost->output_frame = avcodec_alloc_frame();
             if (!ost->output_frame) {
@@ -1089,7 +1100,7 @@ static int encode_audio_frame(AVFormatContext *s, OutputStream *ost,
                              (enc->channels * av_get_bytes_per_sample(enc->sample_fmt));
         if ((ret = avcodec_fill_audio_frame(frame, enc->channels, enc->sample_fmt,
                                             buf, buf_size, 1)) < 0) {
-            av_log(NULL, AV_LOG_FATAL, "Audio encoding failed\n");
+            av_log(NULL, AV_LOG_FATAL, "Audio encoding failed (avcodec_fill_audio_frame)\n");
             exit_program(1);
         }
 
@@ -1099,7 +1110,7 @@ static int encode_audio_frame(AVFormatContext *s, OutputStream *ost,
 
     got_packet = 0;
     if (avcodec_encode_audio2(enc, &pkt, frame, &got_packet) < 0) {
-        av_log(NULL, AV_LOG_FATAL, "Audio encoding failed\n");
+        av_log(NULL, AV_LOG_FATAL, "Audio encoding failed (avcodec_encode_audio2)\n");
         exit_program(1);
     }
 
