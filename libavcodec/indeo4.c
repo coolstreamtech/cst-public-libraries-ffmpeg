@@ -393,6 +393,10 @@ static int decode_band_hdr(IVI4DecContext *ctx, IVIBandDesc *band,
             band->is_2d_trans   = transforms[transform_id].is_2d_trans;
 
             scan_indx = get_bits(&ctx->gb, 4);
+            if ((scan_indx>4 && scan_indx<10) != (band->blk_size==4)) {
+                av_log(avctx, AV_LOG_ERROR, "mismatching scan table!\n");
+                return AVERROR_INVALIDDATA;
+            }
             if (scan_indx == 15) {
                 av_log(avctx, AV_LOG_ERROR, "Custom scan pattern encountered!\n");
                 return AVERROR_INVALIDDATA;
@@ -604,6 +608,7 @@ static int decode_band(IVI4DecContext *ctx, int plane_num,
 {
     int         result, i, t, pos, idx1, idx2;
     IVITile     *tile;
+    int         ret = 0;
 
     band->buf     = band->bufs[ctx->dst_buf];
     band->ref_buf = band->bufs[ctx->ref_buf];
@@ -627,6 +632,10 @@ static int decode_band(IVI4DecContext *ctx, int plane_num,
         idx2 = band->corr[i * 2 + 1];
         FFSWAP(uint8_t, band->rv_map->runtab[idx1], band->rv_map->runtab[idx2]);
         FFSWAP(int16_t, band->rv_map->valtab[idx1], band->rv_map->valtab[idx2]);
+        if (idx1 == band->rv_map->eob_sym || idx2 == band->rv_map->eob_sym)
+            band->rv_map->eob_sym ^= idx1 ^ idx2;
+        if (idx1 == band->rv_map->esc_sym || idx2 == band->rv_map->esc_sym)
+            band->rv_map->esc_sym ^= idx1 ^ idx2;
     }
 
     pos = get_bits_count(&ctx->gb);
@@ -643,7 +652,8 @@ static int decode_band(IVI4DecContext *ctx, int plane_num,
             tile->data_size = ff_ivi_dec_tile_data_size(&ctx->gb);
             if (!tile->data_size) {
                 av_log(avctx, AV_LOG_ERROR, "Tile data size is zero!\n");
-                return AVERROR_INVALIDDATA;
+                ret = AVERROR_INVALIDDATA;
+                break;
             }
 
             result = decode_mb_info(ctx, band, tile, avctx);
@@ -666,6 +676,10 @@ static int decode_band(IVI4DecContext *ctx, int plane_num,
         idx2 = band->corr[i * 2 + 1];
         FFSWAP(uint8_t, band->rv_map->runtab[idx1], band->rv_map->runtab[idx2]);
         FFSWAP(int16_t, band->rv_map->valtab[idx1], band->rv_map->valtab[idx2]);
+        if (idx1 == band->rv_map->eob_sym || idx2 == band->rv_map->eob_sym)
+            band->rv_map->eob_sym ^= idx1 ^ idx2;
+        if (idx1 == band->rv_map->esc_sym || idx2 == band->rv_map->esc_sym)
+            band->rv_map->esc_sym ^= idx1 ^ idx2;
     }
 
 #if defined(DEBUG) && IVI4_DEBUG_CHECKSUM
@@ -681,7 +695,7 @@ static int decode_band(IVI4DecContext *ctx, int plane_num,
 
     align_get_bits(&ctx->gb);
 
-    return 0;
+    return ret;
 }
 
 

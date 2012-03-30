@@ -47,14 +47,13 @@ static int build_vlc(VLC *vlc, const uint8_t *bits_table,
                      const uint8_t *val_table, int nb_codes,
                      int use_static, int is_ac)
 {
-    uint8_t huff_size[256];
+    uint8_t huff_size[256] = { 0 };
     uint16_t huff_code[256];
     uint16_t huff_sym[256];
     int i;
 
     assert(nb_codes <= 256);
 
-    memset(huff_size, 0, sizeof(huff_size));
     ff_mjpeg_build_huffman_codes(huff_size, huff_code, bits_table, val_table);
 
     for (i = 0; i < 256; i++)
@@ -411,6 +410,10 @@ int ff_mjpeg_decode_sof(MJpegDecodeContext *s)
     default:
         av_log(s->avctx, AV_LOG_ERROR, "Unhandled pixel format 0x%x\n", pix_fmt_id);
         return -1;
+    }
+    if ((s->upscale_h || s->upscale_v) && s->avctx->lowres) {
+        av_log(s->avctx, AV_LOG_ERROR, "lowres not supported for weird subsampling\n");
+        return AVERROR_PATCHWELCOME;
     }
     if (s->ls) {
         s->upscale_h = s->upscale_v = 0;

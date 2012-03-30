@@ -565,7 +565,6 @@ static int codec_get_buffer(AVCodecContext *s, AVFrame *frame)
     if (buf->w != s->width || buf->h != s->height || buf->pix_fmt != s->pix_fmt) {
         av_freep(&buf->base[0]);
         av_free(buf);
-        ist->dr1 = 0;
         if ((ret = alloc_buffer(ist, s, &buf)) < 0)
             return ret;
     }
@@ -634,9 +633,9 @@ static int configure_video_filters(InputStream *ist, OutputStream *ost)
     } else
         sample_aspect_ratio = ist->st->codec->sample_aspect_ratio;
 
-    snprintf(args, 255, "%d:%d:%d:%d:%d:%d:%d", ist->st->codec->width,
+    snprintf(args, 255, "%d:%d:%d:%d:%d:%d:%d:flags=%d", ist->st->codec->width,
              ist->st->codec->height, ist->st->codec->pix_fmt, 1, AV_TIME_BASE,
-             sample_aspect_ratio.num, sample_aspect_ratio.den);
+             sample_aspect_ratio.num, sample_aspect_ratio.den, SWS_BILINEAR + ((icodec->flags&CODEC_FLAG_BITEXACT) ? SWS_BITEXACT:0));
 
     ret = avfilter_graph_create_filter(&ost->input_video_filter, avfilter_get_by_name("buffer"),
                                        "src", args, NULL, ost->graph);
@@ -1571,7 +1570,9 @@ static void do_video_out(AVFormatContext *s, OutputStream *ost,
 
     if (ist->st->start_time != AV_NOPTS_VALUE && ist->st->first_dts != AV_NOPTS_VALUE) {
         duration = FFMAX(av_q2d(ist->st->time_base), av_q2d(ist->st->codec->time_base));
-        if(ist->st->avg_frame_rate.num)
+        if(ist->st->r_frame_rate.num)
+            duration= FFMAX(duration, 1/av_q2d(ist->st->r_frame_rate));
+        if(ist->st->avg_frame_rate.num && 0)
             duration= FFMAX(duration, 1/av_q2d(ist->st->avg_frame_rate));
 
         duration /= av_q2d(enc->time_base);
@@ -2174,10 +2175,13 @@ static int transcode_video(InputStream *ist, AVPacket *pkt, int *got_output, int
     for(i=0;i<nb_output_streams;i++) {
         OutputStream *ost = ost = &output_streams[i];
         if(check_output_constraints(ist, ost) && ost->encoding_needed){
+            int changed =    ist->st->codec->width   != ost->input_video_filter->outputs[0]->w
+                          || ist->st->codec->height  != ost->input_video_filter->outputs[0]->h
+                          || ist->st->codec->pix_fmt != ost->input_video_filter->outputs[0]->format;
             if (!frame_sample_aspect->num)
                 *frame_sample_aspect = ist->st->sample_aspect_ratio;
             decoded_frame->pts = ist->pts;
-            if (ist->dr1 && decoded_frame->type==FF_BUFFER_TYPE_USER) {
+            if (ist->dr1 && decoded_frame->type==FF_BUFFER_TYPE_USER && !changed) {
                 FrameBuffer      *buf = decoded_frame->opaque;
                 AVFilterBufferRef *fb = avfilter_get_video_buffer_ref_from_arrays(
                                             decoded_frame->data, decoded_frame->linesize,
@@ -3125,7 +3129,8 @@ static int transcode(OutputFile *output_files, int nb_output_files,
                     int64_t pkt_pts = av_rescale_q(pkt.pts, ist->st->time_base, AV_TIME_BASE_Q);
                     delta   = pkt_pts - ist->next_dts;
                     if ( delta < -1LL*dts_error_threshold*AV_TIME_BASE ||
-                        (delta > 1LL*dts_error_threshold*AV_TIME_BASE && ist->st->codec->codec_type != AVMEDIA_TYPE_SUBTITLE)) {
+                        (delta > 1LL*dts_error_threshold*AV_TIME_BASE && ist->st->codec->codec_type != AVMEDIA_TYPE_SUBTITLE) ||
+                        pkt_pts+1<ist->pts) {
                         av_log(NULL, AV_LOG_WARNING, "PTS %"PRId64", next:%"PRId64" invalid droping st:%d\n", pkt.pts, ist->next_dts, pkt.stream_index);
                         pkt.pts = AV_NOPTS_VALUE;
                     }
@@ -5072,7 +5077,7 @@ static const OptionDef options[] = {
     { "async", HAS_ARG | OPT_INT | OPT_EXPERT, {(void*)&audio_sync_method}, "audio sync method", "" },
     { "adrift_threshold", HAS_ARG | OPT_FLOAT | OPT_EXPERT, {(void*)&audio_drift_threshold}, "audio drift threshold", "threshold" },
     { "copyts", OPT_BOOL | OPT_EXPERT, {(void*)&copy_ts}, "copy timestamps" },
-    { "copytb", HAS_ARG | OPT_INT | OPT_EXPERT, {(void*)&copy_tb}, "copy input stream time base when stream copying", "source" },
+    { "copytb", HAS_ARG | OPT_INT | OPT_EXPERT, {(void*)&copy_tb}, "copy input stream time base when stream copying", "mode" },
     { "shortest", OPT_BOOL | OPT_EXPERT, {(void*)&opt_shortest}, "finish encoding within shortest input" }, //
     { "dts_delta_threshold", HAS_ARG | OPT_FLOAT | OPT_EXPERT, {(void*)&dts_delta_threshold}, "timestamp discontinuity delta threshold", "threshold" },
     { "dts_error_threshold", HAS_ARG | OPT_FLOAT | OPT_EXPERT, {(void*)&dts_error_threshold}, "timestamp error delta threshold", "threshold" },
