@@ -25,6 +25,7 @@
 
 #include "libswresample/swresample.h" // only for SWR_CH_MAX
 #include "avfilter.h"
+#include "audio.h"
 #include "internal.h"
 
 #define QUEUE_SIZE 16
@@ -141,11 +142,12 @@ static int request_frame(AVFilterLink *outlink)
 {
     AVFilterContext *ctx = outlink->src;
     AMergeContext *am = ctx->priv;
-    int i;
+    int i, ret;
 
     for (i = 0; i < 2; i++)
         if (!am->queue[i].nb_samples)
-            avfilter_request_frame(ctx->inputs[i]);
+            if ((ret = avfilter_request_frame(ctx->inputs[i])) < 0)
+                return ret;
     return 0;
 }
 
@@ -207,7 +209,7 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
 
     nb_samples = FFMIN(am->queue[0].nb_samples,
                        am->queue[1].nb_samples);
-    outbuf = avfilter_get_audio_buffer(ctx->outputs[0], AV_PERM_WRITE,
+    outbuf = ff_get_audio_buffer(ctx->outputs[0], AV_PERM_WRITE,
                                        nb_samples);
     outs = outbuf->data[0];
     for (i = 0; i < 2; i++) {
@@ -263,7 +265,7 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
                     am->queue[i].nb_buf * sizeof(**inbuf));
         }
     }
-    avfilter_filter_samples(ctx->outputs[0], outbuf);
+    ff_filter_samples(ctx->outputs[0], outbuf);
 }
 
 AVFilter avfilter_af_amerge = {

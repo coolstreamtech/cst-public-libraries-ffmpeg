@@ -5,7 +5,8 @@ VREF = fate-vsynth1-vref fate-vsynth2-vref
 REFS = $(AREF) $(VREF)
 
 $(VREF): ffmpeg$(EXESUF) tests/vsynth1/00.pgm tests/vsynth2/00.pgm
-$(AREF): ffmpeg$(EXESUF) tests/data/asynth1.sw
+$(AREF): ffmpeg$(EXESUF) tests/data/asynth1.sw tests/data/asynth-16000-1.wav
+$(AREF): CMP=
 
 ffservertest: ffserver$(EXESUF) tests/vsynth1/00.pgm tests/data/asynth1.sw
 	@echo
@@ -16,6 +17,9 @@ ffservertest: ffserver$(EXESUF) tests/vsynth1/00.pgm tests/data/asynth1.sw
 
 OBJDIRS += tests/data tests/vsynth1 tests/vsynth2
 
+# Required due to missing automatic dependency tracking for HOSTOBJS.
+tests/rotozoom.o tests/videogen.o: tests/utils.c
+
 tests/vsynth1/00.pgm: tests/videogen$(HOSTEXESUF) | tests/vsynth1
 	$(M)./$< 'tests/vsynth1/'
 
@@ -25,18 +29,10 @@ tests/vsynth2/00.pgm: tests/rotozoom$(HOSTEXESUF) | tests/vsynth2
 tests/data/asynth1.sw: tests/audiogen$(HOSTEXESUF) | tests/data
 	$(M)./$< $@
 
-tests/data/asynth-16000-1.sw: tests/audiogen$(HOSTEXESUF) | tests/data
-	$(M)./$< $@ 16000 1
+tests/data/asynth-%.wav: tests/audiogen$(HOSTEXESUF) | tests/data
+	$(M)./$< $@ $(subst -, ,$*)
 
-tests/data/mapchan-6ch.sw: tests/audiogen$(HOSTEXESUF)
-	@mkdir -p tests/data
-	$(M)./$< $@ 22050 6
-
-tests/data/mapchan-mono.sw: tests/audiogen$(HOSTEXESUF)
-	@mkdir -p tests/data
-	$(M)./$< $@ 22050 1
-
-tests/data/%.sw tests/vsynth%/00.pgm: TAG = GEN
+tests/data/%.sw tests/data/asynth% tests/vsynth%/00.pgm: TAG = GEN
 
 include $(SRC_PATH)/tests/fate/aac.mak
 include $(SRC_PATH)/tests/fate/ac3.mak
@@ -46,6 +42,7 @@ include $(SRC_PATH)/tests/fate/amrnb.mak
 include $(SRC_PATH)/tests/fate/amrwb.mak
 include $(SRC_PATH)/tests/fate/atrac.mak
 include $(SRC_PATH)/tests/fate/audio.mak
+include $(SRC_PATH)/tests/fate/bmp.mak
 include $(SRC_PATH)/tests/fate/cdxl.mak
 include $(SRC_PATH)/tests/fate/dct.mak
 include $(SRC_PATH)/tests/fate/demux.mak
@@ -65,6 +62,7 @@ include $(SRC_PATH)/tests/fate/microsoft.mak
 include $(SRC_PATH)/tests/fate/mp3.mak
 include $(SRC_PATH)/tests/fate/mpc.mak
 include $(SRC_PATH)/tests/fate/pcm.mak
+include $(SRC_PATH)/tests/fate/probe.mak
 include $(SRC_PATH)/tests/fate/prores.mak
 include $(SRC_PATH)/tests/fate/qt.mak
 include $(SRC_PATH)/tests/fate/qtrle.mak
@@ -93,9 +91,15 @@ FATE = $(FATE_ACODEC)                                                   \
        $(FATE_LAVF)                                                     \
        $(FATE_SEEK)                                                     \
 
+FATE_FFMPEG += $(FATE_FFMPEG-yes) $(FATE_AVCONV) $(FATE_AVCONV-yes)
+
+FATE-$(CONFIG_AVCODEC)  += $(FATE_LIBAVCODEC)
 FATE-$(CONFIG_AVFILTER) += $(FATE_LAVFI)
 
 FATE += $(FATE-yes)
+FATE += $(FATE_LIBAVUTIL)
+
+$(FATE_FFMPEG) $(FATE_LAVF_FATE): ffmpeg$(EXESUF)
 
 $(filter-out %-aref,$(FATE_ACODEC)): $(AREF)
 $(filter-out %-vref,$(FATE_VSYNTH1)): fate-vsynth1-vref
@@ -122,7 +126,7 @@ fate-seek:   $(FATE_SEEK)
 
 ifdef SAMPLES
 FATE += $(FATE_LAVF_FATE)
-FATE += $(FATE_TESTS) $(FATE_TESTS-yes)
+FATE += $(FATE_FFMPEG)
 fate-rsync:
 	rsync -vaLW --timeout=60 --contimeout=60 rsync://fate.ffmpeg.org/fate-suite/ $(SAMPLES)
 else
@@ -140,7 +144,7 @@ TOOL = ffmpeg
 
 fate:: $(FATE)
 
-$(FATE): $(TOOL)$(EXESUF) $(FATE_UTILS:%=tests/%$(HOSTEXESUF))
+$(FATE) $(FATE_TESTS-no): $(FATE_UTILS:%=tests/%$(HOSTEXESUF))
 	@echo "TEST    $(@:fate-%=%)"
 	$(Q)$(SRC_PATH)/tests/fate-run.sh $@ "$(SAMPLES)" "$(TARGET_EXEC)" "$(TARGET_PATH)" '$(CMD)' '$(CMP)' '$(REF)' '$(FUZZ)' '$(THREADS)' '$(THREAD_TYPE)' '$(CPUFLAGS)' '$(CMP_SHIFT)' '$(CMP_TARGET)' '$(SIZE_TOLERANCE)'
 

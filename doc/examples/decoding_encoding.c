@@ -29,6 +29,8 @@
  * format handling
  */
 
+#include <math.h>
+
 #include "libavutil/imgutils.h"
 #include "libavutil/opt.h"
 #include "libavcodec/avcodec.h"
@@ -211,10 +213,11 @@ static void video_encode_example(const char *filename, int codec_id)
 {
     AVCodec *codec;
     AVCodecContext *c= NULL;
-    int i, out_size, size, x, y, outbuf_size;
+    int i, out_size, x, y, outbuf_size;
     FILE *f;
     AVFrame *picture;
     uint8_t *outbuf;
+    int had_output=0;
 
     printf("Video encoding\n");
 
@@ -284,15 +287,17 @@ static void video_encode_example(const char *filename, int codec_id)
 
         /* encode the image */
         out_size = avcodec_encode_video(c, outbuf, outbuf_size, picture);
+        had_output |= out_size;
         printf("encoding frame %3d (size=%5d)\n", i, out_size);
         fwrite(outbuf, 1, out_size, f);
     }
 
     /* get the delayed frames */
-    for(; out_size; i++) {
+    for(; out_size || !had_output; i++) {
         fflush(stdout);
 
         out_size = avcodec_encode_video(c, outbuf, outbuf_size, NULL);
+        had_output |= out_size;
         printf("write frame %3d (size=%5d)\n", i, out_size);
         fwrite(outbuf, 1, out_size, f);
     }

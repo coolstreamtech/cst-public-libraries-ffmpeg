@@ -1,3 +1,6 @@
+FATE_DEMUX += fate-avio-direct
+fate-avio-direct: CMD = framecrc -avioflags direct -i $(SAMPLES)/fraps/fraps-v5-bouncing-balls-partial.avi -avioflags direct
+
 FATE_DEMUX += fate-adts-demux
 fate-adts-demux: CMD = crc -i $(SAMPLES)/aac/ct_faac-adts.aac -acodec copy
 
@@ -91,5 +94,5 @@ fate-xmv-demux: CMD = framecrc -i $(SAMPLES)/xmv/logos1p.fmv -vcodec copy -acode
 FATE_DEMUX += fate-xwma-demux
 fate-xwma-demux: CMD = crc -i $(SAMPLES)/xwma/ergon.xwma -acodec copy
 
-FATE_TESTS += $(FATE_DEMUX)
+FATE_FFMPEG += $(FATE_DEMUX)
 fate-demux: $(FATE_DEMUX)
