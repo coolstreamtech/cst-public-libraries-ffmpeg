@@ -40,6 +40,7 @@ export CFLAGS=-march=armv6
 --disable-ffplay \
 --disable-ffmpeg \
 --disable-ffserver \
+--disable-ffprobe \
 --disable-static \
 --disable-filters \
 --arch=arm \
