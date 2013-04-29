@@ -24,9 +24,22 @@
  *     'ULY0' (YCbCr 4:2:0), 'ULY2' (YCbCr 4:2:2), 'ULRG' (RGB), 'ULRA' (RGBA)
  */
 
+#ifndef AVCODEC_LIBUTVIDEO_H
+#define AVCODEC_LIBUTVIDEO_H
+
 #include <stdlib.h>
 #include <utvideo/utvideo.h>
 #include <utvideo/Codec.h>
+
+/* Ut Video version 12.0.0 removed the _WIN names, so if those are
+ * absent, redefine them to maintain compatibility with pre-v12 versions.*/
+#if !defined(UTVF_RGB24_WIN)
+#define UTVF_RGB24_WIN UTVF_NFCC_BGR_BU
+#endif
+
+#if !defined(UTVF_RGB32_WIN)
+#define UTVF_RGB32_WIN UTVF_NFCC_BGRA_BU
+#endif
 
 typedef struct {
     uint32_t version;
@@ -40,3 +53,5 @@ typedef struct {
     unsigned int buf_size;
     uint8_t *buffer;
 } UtVideoContext;
+
+#endif /* AVCODEC_LIBUTVIDEO_H */
