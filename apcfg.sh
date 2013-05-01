@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export CFLAGS=-march=armv6
+export CFLAGS="-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard"
 
 ./configure \
 --disable-parsers \
@@ -71,9 +71,8 @@ export CFLAGS=-march=armv6
 --target-os=linux \
 --arch=arm \
 --disable-neon \
---cpu=armv6 \
---cross-prefix=arm-cx2450x-linux-gnueabi- \
---prefix=/opt/arm/arm-cx2450x-linux-gnueabi/arm-cx2450x-linux-gnueabi/sys-root/usr $*
+--cross-prefix=arm-pnx8400-linux-uclibcgnueabi- \
+--prefix=/opt/arm/arm-pnx8400-linux-uclibcgnueabi/arm-pnx8400-linux-uclibcgnueabi/sys-root/usr $*
 
 #--enable-decoder=h264 \
 #--enable-decoder=mpeg4video \
