@@ -1156,7 +1156,7 @@ static void compute_pkt_fields(AVFormatContext *s, AVStream *st,
         if(pkt->dts != AV_NOPTS_VALUE)
             pkt->dts += offset;
     }
-
+#if 0
     if (pc && pc->dts_sync_point >= 0) {
         // we have synchronization info from the parser
         int64_t den = st->codec->time_base.den * (int64_t) st->time_base.num;
@@ -1175,6 +1175,7 @@ static void compute_pkt_fields(AVFormatContext *s, AVStream *st,
                 st->reference_dts = pkt->dts; // new reference
         }
     }
+#endif
 
     /* This may be redundant, but it should not hurt. */
     if(pkt->dts != AV_NOPTS_VALUE && pkt->pts != AV_NOPTS_VALUE && pkt->pts > pkt->dts)
