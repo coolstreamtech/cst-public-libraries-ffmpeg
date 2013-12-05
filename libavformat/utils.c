@@ -1165,12 +1165,14 @@ static void compute_pkt_fields(AVFormatContext *s, AVStream *st,
             if (pkt->dts != AV_NOPTS_VALUE) {
                 // got DTS from the stream, update reference timestamp
                 st->reference_dts = pkt->dts - pc->dts_ref_dts_delta * num / den;
-                pkt->pts = pkt->dts + pc->pts_dts_delta * num / den;
             } else if (st->reference_dts != AV_NOPTS_VALUE) {
                 // compute DTS based on reference timestamp
                 pkt->dts = st->reference_dts + pc->dts_ref_dts_delta * num / den;
-                pkt->pts = pkt->dts + pc->pts_dts_delta * num / den;
             }
+
+            if (st->reference_dts != AV_NOPTS_VALUE && pkt->pts == AV_NOPTS_VALUE)
+                pkt->pts = pkt->dts + pc->pts_dts_delta * num / den;
+
             if (pc->dts_sync_point > 0)
                 st->reference_dts = pkt->dts; // new reference
         }
@@ -1457,6 +1459,9 @@ static int read_frame_internal(AVFormatContext *s, AVPacket *pkt)
             st->skip_to_keyframe = 0;
         if (st->skip_to_keyframe) {
             av_free_packet(&cur_pkt);
+            if (got_packet) {
+                *pkt = cur_pkt;
+            }
             got_packet = 0;
         }
     }
@@ -1859,14 +1864,16 @@ int64_t ff_gen_search(AVFormatContext *s, int stream_index, int64_t target_ts,
     }
 
     if(ts_max == AV_NOPTS_VALUE){
-        int step= 1024;
+        int64_t step= 1024;
+        int64_t limit;
         filesize = avio_size(s->pb);
         pos_max = filesize - 1;
         do{
+            limit = pos_max;
             pos_max = FFMAX(0, pos_max - step);
-            ts_max = ff_read_timestamp(s, stream_index, &pos_max, pos_max + step, read_timestamp);
+            ts_max = ff_read_timestamp(s, stream_index, &pos_max, limit, read_timestamp);
             step += step;
-        }while(ts_max == AV_NOPTS_VALUE && pos_max > 0);
+        }while(ts_max == AV_NOPTS_VALUE && 2*limit > step);
         if (ts_max == AV_NOPTS_VALUE)
             return -1;
 
@@ -2838,9 +2845,10 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
                 goto find_stream_info_err;
         }
 
-        read_size += pkt->size;
-
         st = ic->streams[pkt->stream_index];
+        if (!(st->disposition & AV_DISPOSITION_ATTACHED_PIC))
+            read_size += pkt->size;
+
         if (pkt->dts != AV_NOPTS_VALUE && st->codec_info_nb_frames > 1) {
             /* check for non-increasing dts */
             if (st->info->fps_last_dts != AV_NOPTS_VALUE &&

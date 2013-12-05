@@ -2584,6 +2584,7 @@ static void flush_change(H264Context *h)
     h->sync= 0;
     h->list_count = 0;
     h->current_slice = 0;
+    h->mmco_reset = 1;
 }
 
 /* forget old pics after a seek */
@@ -3364,7 +3365,7 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
             assert(h0->cur_pic_ptr->f.reference != DELAYED_PIC_REF);
 
             /* Mark old field/frame as completed */
-            if (!last_pic_droppable && h0->cur_pic_ptr->owner2 == h0) {
+            if (h0->cur_pic_ptr->owner2 == h0) {
                 ff_thread_report_progress(&h0->cur_pic_ptr->f, INT_MAX,
                                           last_pic_structure == PICT_BOTTOM_FIELD);
             }
@@ -3373,7 +3374,7 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
             if (!FIELD_PICTURE || h->picture_structure == last_pic_structure) {
                 /* Previous field is unmatched. Don't display it, but let it
                  * remain for reference if marked as such. */
-                if (!last_pic_droppable && last_pic_structure != PICT_FRAME) {
+                if (last_pic_structure != PICT_FRAME) {
                     ff_thread_report_progress(&h0->cur_pic_ptr->f, INT_MAX,
                                               last_pic_structure == PICT_TOP_FIELD);
                 }
@@ -3383,7 +3384,7 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
                      * different frame_nums. Consider this field first in
                      * pair. Throw away previous field except for reference
                      * purposes. */
-                    if (!last_pic_droppable && last_pic_structure != PICT_FRAME) {
+                    if (last_pic_structure != PICT_FRAME) {
                         ff_thread_report_progress(&h0->cur_pic_ptr->f, INT_MAX,
                                                   last_pic_structure == PICT_TOP_FIELD);
                     }
@@ -3775,6 +3776,7 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
 
     if (h->ref_count[0]) h->er.last_pic = &h->ref_list[0][0];
     if (h->ref_count[1]) h->er.next_pic = &h->ref_list[1][0];
+    h->er.ref_count = h->ref_count[0];
 
     if (h->avctx->debug & FF_DEBUG_PICT_INFO) {
         av_log(h->avctx, AV_LOG_DEBUG,
@@ -4166,7 +4168,6 @@ static void er_add_slice(H264Context *h, int startx, int starty,
     if (CONFIG_ERROR_RESILIENCE) {
         ERContext *er = &h->er;
 
-        er->ref_count = h->ref_count[0];
         ff_er_add_slice(er, startx, starty, endx, endy, status);
     }
 }
