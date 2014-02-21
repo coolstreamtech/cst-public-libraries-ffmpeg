@@ -34,6 +34,8 @@ export CFLAGS=-march=armv6
 --enable-decoder=vorbis \
 --enable-decoder=aac \
 --enable-decoder=mjpeg \
+--enable-decoder=pcm_s16le \
+--enable-decoder=pcm_s16le_planar \
 --disable-demuxers \
 --enable-demuxer=aac \
 --enable-demuxer=ac3 \
@@ -57,6 +59,7 @@ export CFLAGS=-march=armv6
 --enable-demuxer=wav \
 --enable-demuxer=ogg \
 --enable-demuxer=flac \
+--enable-demuxer=srt \
 --disable-encoders \
 --disable-muxers \
 --disable-ffplay \
@@ -73,6 +76,7 @@ export CFLAGS=-march=armv6
 --enable-protocol=rtmpte \
 --enable-protocol=mmsh \
 --enable-protocol=mmst \
+--enable-protocol=bluray \
 --enable-bsfs \
 --disable-devices \
 --enable-swresample \
@@ -80,6 +84,7 @@ export CFLAGS=-march=armv6
 --disable-swscale \
 --disable-mmx     \
 --disable-altivec  \
+--enable-libbluray \
 --enable-network \
 --enable-cross-compile \
 --enable-shared \
