@@ -501,7 +501,12 @@ static int process_line(URLContext *h, char *line, int line_count,
             if (!s->cookies) {
                 if (!(s->cookies = av_strdup(p)))
                     return AVERROR(ENOMEM);
+#if 1
+	    // FIXME, ugly
+            } else if (!strstr(s->cookies, p)) {
+#else
             } else {
+#endif
                 char *tmp = s->cookies;
                 size_t str_size = strlen(tmp) + strlen(p) + 2;
                 if (!(s->cookies = av_malloc(str_size))) {
