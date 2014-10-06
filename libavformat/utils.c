@@ -110,6 +110,26 @@ MAKE_ACCESSORS(AVFormatContext, format, int, metadata_header_padding)
 MAKE_ACCESSORS(AVFormatContext, format, void *, opaque)
 MAKE_ACCESSORS(AVFormatContext, format, av_format_control_message, control_message_cb)
 
+void *av_fast_realloc(void *ptr, unsigned int *size, size_t min_size)
+{
+    if (min_size < *size)
+        return ptr;
+
+    min_size = FFMAX(17 * min_size / 16 + 32, min_size);
+
+    ptr = av_realloc(ptr, min_size);
+    /* we could set this to the unmodified min_size but this is safer
+     * if the user lost the ptr and uses NULL now
+     */
+    if (!ptr)
+        min_size = 0;
+
+    *size = min_size;
+
+    return ptr;
+}
+
+
 int64_t av_stream_get_end_pts(const AVStream *st)
 {
     return st->pts.val;
