@@ -31,6 +31,7 @@ export CFLAGS="-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard"
 --enable-decoder=subviewer1 \
 --enable-decoder=xsub \
 --enable-decoder=pgssub \
+--enable-decoder=movtext \
 --enable-decoder=mp3 \
 --enable-decoder=flac \
 --enable-decoder=vorbis \
