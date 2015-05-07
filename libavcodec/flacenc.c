@@ -68,6 +68,7 @@ typedef struct RiceContext {
     enum CodingMode coding_mode;
     int porder;
     int params[MAX_PARTITIONS];
+    uint32_t udata[FLAC_MAX_BLOCKSIZE];
 } RiceContext;
 
 typedef struct FlacSubframe {
@@ -80,7 +81,7 @@ typedef struct FlacSubframe {
     int shift;
     RiceContext rc;
     int32_t samples[FLAC_MAX_BLOCKSIZE];
-    int32_t residual[FLAC_MAX_BLOCKSIZE+1];
+    int32_t residual[FLAC_MAX_BLOCKSIZE+11];
 } FlacSubframe;
 
 typedef struct FlacFrame {
@@ -428,7 +429,7 @@ static av_cold int flac_encode_init(AVCodecContext *avctx)
                       s->options.max_prediction_order, FF_LPC_TYPE_LEVINSON);
 
     ff_bswapdsp_init(&s->bdsp);
-    ff_flacdsp_init(&s->flac_dsp, avctx->sample_fmt,
+    ff_flacdsp_init(&s->flac_dsp, avctx->sample_fmt, channels,
                     avctx->bits_per_raw_sample);
 
     dprint_compression_options(s);
@@ -528,6 +529,9 @@ static uint64_t subframe_count_exact(FlacEncodeContext *s, FlacSubframe *sub,
     /* subframe header */
     count += 8;
 
+    if (sub->wasted)
+        count += sub->wasted;
+
     /* subframe */
     if (sub->type == FLAC_SUBFRAME_CONSTANT) {
         count += sub->obits;
@@ -609,10 +613,10 @@ static uint64_t calc_optimal_rice_params(RiceContext *rc, int porder,
 }
 
 
-static void calc_sums(int pmin, int pmax, uint32_t *data, int n, int pred_order,
-                      uint64_t sums[][MAX_PARTITIONS])
+static void calc_sum_top(int pmax, uint32_t *data, int n, int pred_order,
+                         uint64_t sums[MAX_PARTITIONS])
 {
-    int i, j;
+    int i;
     int parts;
     uint32_t *res, *res_end;
 
@@ -624,17 +628,18 @@ static void calc_sums(int pmin, int pmax, uint32_t *data, int n, int pred_order,
         uint64_t sum = 0;
         while (res < res_end)
             sum += *(res++);
-        sums[pmax][i] = sum;
+        sums[i] = sum;
         res_end += n >> pmax;
-    }
-    /* sums for lower levels */
-    for (i = pmax - 1; i >= pmin; i--) {
-        parts = (1 << i);
-        for (j = 0; j < parts; j++)
-            sums[i][j] = sums[i+1][2*j] + sums[i+1][2*j+1];
     }
 }
 
+static void calc_sum_next(int level, uint64_t sums[MAX_PARTITIONS])
+{
+    int i;
+    int parts = (1 << level);
+    for (i = 0; i < parts; i++)
+        sums[i] = sums[2*i] + sums[2*i+1];
+}
 
 static uint64_t calc_rice_params(RiceContext *rc, int pmin, int pmax,
                                  int32_t *data, int n, int pred_order)
@@ -643,8 +648,7 @@ static uint64_t calc_rice_params(RiceContext *rc, int pmin, int pmax,
     uint64_t bits[MAX_PARTITION_ORDER+1];
     int opt_porder;
     RiceContext tmp_rc;
-    uint32_t *udata;
-    uint64_t sums[MAX_PARTITION_ORDER+1][MAX_PARTITIONS];
+    uint64_t sums[MAX_PARTITIONS];
 
     av_assert1(pmin >= 0 && pmin <= MAX_PARTITION_ORDER);
     av_assert1(pmax >= 0 && pmax <= MAX_PARTITION_ORDER);
@@ -652,23 +656,24 @@ static uint64_t calc_rice_params(RiceContext *rc, int pmin, int pmax,
 
     tmp_rc.coding_mode = rc->coding_mode;
 
-    udata = av_malloc_array(n,  sizeof(uint32_t));
     for (i = 0; i < n; i++)
-        udata[i] = (2*data[i]) ^ (data[i]>>31);
+        rc->udata[i] = (2 * data[i]) ^ (data[i] >> 31);
 
-    calc_sums(pmin, pmax, udata, n, pred_order, sums);
+    calc_sum_top(pmax, rc->udata, n, pred_order, sums);
 
     opt_porder = pmin;
     bits[pmin] = UINT32_MAX;
-    for (i = pmin; i <= pmax; i++) {
-        bits[i] = calc_optimal_rice_params(&tmp_rc, i, sums[i], n, pred_order);
-        if (bits[i] <= bits[opt_porder]) {
+    for (i = pmax; ; ) {
+        bits[i] = calc_optimal_rice_params(&tmp_rc, i, sums, n, pred_order);
+        if (bits[i] < bits[opt_porder]) {
             opt_porder = i;
             *rc = tmp_rc;
         }
+        if (i == pmin)
+            break;
+        calc_sum_next(--i, sums);
     }
 
-    av_freep(&udata);
     return bits[opt_porder];
 }
 

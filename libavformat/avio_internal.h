@@ -25,7 +25,7 @@
 
 #include "libavutil/log.h"
 
-extern const AVClass ffio_url_class;
+extern const AVClass ff_avio_class;
 
 int ffio_init_context(AVIOContext *s,
                   unsigned char *buffer,
@@ -95,7 +95,7 @@ int ffio_set_buf_size(AVIOContext *s, int buf_size);
  * within the current pos and pos+buf_size is possible.
  * Once the stream position moves outside this window this guarantee is lost.
  */
-int ffio_ensure_seekback(AVIOContext *s, int buf_size);
+int ffio_ensure_seekback(AVIOContext *s, int64_t buf_size);
 
 int ffio_limit(AVIOContext *s, int size);
 
@@ -149,5 +149,12 @@ int ffio_open_null_buf(AVIOContext **s);
  * @return the number of bytes written to the null buffer
  */
 int ffio_close_null_buf(AVIOContext *s);
+
+/**
+ * Free a dynamic buffer.
+ *
+ * @param s a pointer to an IO context opened by avio_open_dyn_buf()
+ */
+void ffio_free_dyn_buf(AVIOContext **s);
 
 #endif /* AVFORMAT_AVIO_INTERNAL_H */

@@ -28,7 +28,6 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <assert.h>
 
 #include "libavutil/intreadwrite.h"
 #include "libavutil/avassert.h"
@@ -60,6 +59,24 @@ static inline void init_put_bits(PutBitContext *s, uint8_t *buffer,
     s->buf_ptr      = s->buf;
     s->bit_left     = 32;
     s->bit_buf      = 0;
+}
+
+/**
+ * Rebase the bit writer onto a reallocated buffer.
+ *
+ * @param buffer the buffer where to put bits
+ * @param buffer_size the size in bytes of buffer,
+ *                    must be larger than the previous size
+ */
+static inline void rebase_put_bits(PutBitContext *s, uint8_t *buffer,
+                                   int buffer_size)
+{
+    av_assert0(8*buffer_size > s->size_in_bits);
+
+    s->buf_end = buffer + buffer_size;
+    s->buf_ptr = buffer + (s->buf_ptr - s->buf);
+    s->buf     = buffer;
+    s->size_in_bits = 8 * buffer_size;
 }
 
 /**
@@ -176,7 +193,7 @@ static inline void put_sbits(PutBitContext *pb, int n, int32_t value)
 {
     av_assert2(n >= 0 && n <= 31);
 
-    put_bits(pb, n, value & ((1 << n) - 1));
+    put_bits(pb, n, av_mod_uintp2(value, n));
 }
 
 /**

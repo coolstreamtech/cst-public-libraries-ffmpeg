@@ -146,7 +146,7 @@ static uint64_t find_any_startcode(AVIOContext *bc, int64_t pos)
         /* Note, this may fail if the stream is not seekable, but that should
          * not matter, as in this case we simply start where we currently are */
         avio_seek(bc, pos, SEEK_SET);
-    while (!url_feof(bc)) {
+    while (!avio_feof(bc)) {
         state = (state << 8) | avio_r8(bc);
         if ((state >> 56) != 'N')
             continue;
@@ -248,7 +248,7 @@ static int decode_main_header(NUTContext *nut)
     }
 
     GET_V(nut->time_base_count, tmp > 0 && tmp < INT_MAX / sizeof(AVRational));
-    nut->time_base = av_malloc(nut->time_base_count * sizeof(AVRational));
+    nut->time_base = av_malloc_array(nut->time_base_count, sizeof(AVRational));
     if (!nut->time_base)
         return AVERROR(ENOMEM);
 
@@ -294,7 +294,7 @@ static int decode_main_header(NUTContext *nut)
         while (tmp_fields-- > 8)
             ffio_read_varlen(bc);
 
-        if (count == 0 || i + count > 256) {
+        if (count <= 0 || count > 256 - (i <= 'N') - i) {
             av_log(s, AV_LOG_ERROR, "illegal count %d at %d\n", count, i);
             return AVERROR_INVALIDDATA;
         }
@@ -484,9 +484,11 @@ static int decode_info_header(NUTContext *nut)
     int64_t value, end;
     char name[256], str_value[1024], type_str[256];
     const char *type;
+    int *event_flags        = NULL;
     AVChapter *chapter      = NULL;
     AVStream *st            = NULL;
     AVDictionary **metadata = NULL;
+    int metadata_flag       = 0;
 
     end  = get_packetheader(nut, bc, 1, INFO_STARTCODE);
     end += avio_tell(bc);
@@ -503,12 +505,21 @@ static int decode_info_header(NUTContext *nut)
                                      nut->time_base[chapter_start %
                                                     nut->time_base_count],
                                      start, start + chapter_len, NULL);
+        if (!chapter) {
+            av_log(s, AV_LOG_ERROR, "could not create chapter\n");
+            return AVERROR(ENOMEM);
+        }
         metadata = &chapter->metadata;
     } else if (stream_id_plus1) {
         st       = s->streams[stream_id_plus1 - 1];
         metadata = &st->metadata;
-    } else
+        event_flags = &st->event_flags;
+        metadata_flag = AVSTREAM_EVENT_FLAG_METADATA_UPDATED;
+    } else {
         metadata = &s->metadata;
+        event_flags = &s->event_flags;
+        metadata_flag = AVFMT_EVENT_FLAG_METADATA_UPDATED;
+    }
 
     for (i = 0; i < count; i++) {
         get_str(bc, name, sizeof(name));
@@ -546,14 +557,18 @@ static int decode_info_header(NUTContext *nut)
 
             if (stream_id_plus1 && !strcmp(name, "r_frame_rate")) {
                 sscanf(str_value, "%d/%d", &st->r_frame_rate.num, &st->r_frame_rate.den);
-                if (st->r_frame_rate.num >= 1000LL*st->r_frame_rate.den)
+                if (st->r_frame_rate.num >= 1000LL*st->r_frame_rate.den ||
+                    st->r_frame_rate.num < 0 || st->r_frame_rate.num < 0)
                     st->r_frame_rate.num = st->r_frame_rate.den = 0;
                 continue;
             }
 
             if (metadata && av_strcasecmp(name, "Uses") &&
-                av_strcasecmp(name, "Depends") && av_strcasecmp(name, "Replaces"))
+                av_strcasecmp(name, "Depends") && av_strcasecmp(name, "Replaces")) {
+                if (event_flags)
+                    *event_flags |= metadata_flag;
                 av_dict_set(metadata, name, str_value, 0);
+            }
         }
     }
 
@@ -730,12 +745,14 @@ fail:
     return ret;
 }
 
+static int nut_read_close(AVFormatContext *s);
+
 static int nut_read_header(AVFormatContext *s)
 {
     NUTContext *nut = s->priv_data;
     AVIOContext *bc = s->pb;
     int64_t pos;
-    int initialized_stream_count;
+    int initialized_stream_count, ret = 0;
 
     nut->avf = s;
 
@@ -745,7 +762,8 @@ static int nut_read_header(AVFormatContext *s)
         pos = find_startcode(bc, MAIN_STARTCODE, pos) + 1;
         if (pos < 0 + 1) {
             av_log(s, AV_LOG_ERROR, "No main startcode found.\n");
-            return AVERROR_INVALIDDATA;
+            ret = AVERROR_INVALIDDATA;
+            goto end;
         }
     } while (decode_main_header(nut) < 0);
 
@@ -755,7 +773,8 @@ static int nut_read_header(AVFormatContext *s)
         pos = find_startcode(bc, STREAM_STARTCODE, pos) + 1;
         if (pos < 0 + 1) {
             av_log(s, AV_LOG_ERROR, "Not all stream headers found.\n");
-            return AVERROR_INVALIDDATA;
+            ret = AVERROR_INVALIDDATA;
+            goto end;
         }
         if (decode_stream_header(nut) >= 0)
             initialized_stream_count++;
@@ -769,7 +788,8 @@ static int nut_read_header(AVFormatContext *s)
 
         if (startcode == 0) {
             av_log(s, AV_LOG_ERROR, "EOF before video frames\n");
-            return AVERROR_INVALIDDATA;
+            ret = AVERROR_INVALIDDATA;
+            goto end;
         } else if (startcode == SYNCPOINT_STARTCODE) {
             nut->next_startcode = startcode;
             break;
@@ -780,7 +800,7 @@ static int nut_read_header(AVFormatContext *s)
         decode_info_header(nut);
     }
 
-    s->data_offset = pos - 8;
+    s->internal->data_offset = pos - 8;
 
     if (bc->seekable) {
         int64_t orig_pos = avio_tell(bc);
@@ -791,7 +811,10 @@ static int nut_read_header(AVFormatContext *s)
 
     ff_metadata_conv_ctx(s, NULL, ff_nut_metadata_conv);
 
-    return 0;
+end:
+    if (ret < 0)
+        nut_read_close(s);
+    return FFMIN(ret, 0);
 }
 
 static int read_sm_data(AVFormatContext *s, AVIOContext *bc, AVPacket *pkt, int is_meta, int64_t maxpos)
@@ -984,11 +1007,10 @@ static int decode_frame(NUTContext *nut, AVPacket *pkt, int frame_code)
 {
     AVFormatContext *s = nut->avf;
     AVIOContext *bc    = s->pb;
-    int size, stream_id, discard;
+    int size, stream_id, discard, ret;
     int64_t pts, last_IP_pts;
     StreamContext *stc;
     uint8_t header_idx;
-    int ret;
 
     size = decode_frame_header(nut, &pts, &stream_id, &header_idx, frame_code);
     if (size < 0)
@@ -1010,8 +1032,9 @@ static int decode_frame(NUTContext *nut, AVPacket *pkt, int frame_code)
         return 1;
     }
 
-    if (av_new_packet(pkt, size + nut->header_len[header_idx]) < 0)
-        return AVERROR(ENOMEM);
+    ret = av_new_packet(pkt, size + nut->header_len[header_idx]);
+    if (ret < 0)
+        return ret;
     memcpy(pkt->data, nut->header[header_idx], nut->header_len[header_idx]);
     pkt->pos = avio_tell(bc); // FIXME
     if (stc->last_flags & FLAG_SM_DATA) {
@@ -1056,7 +1079,7 @@ static int nut_read_packet(AVFormatContext *s, AVPacket *pkt)
             pos -= 8;
         } else {
             frame_code = avio_r8(bc);
-            if (url_feof(bc))
+            if (avio_feof(bc))
                 return AVERROR_EOF;
             if (frame_code == 'N') {
                 tmp = frame_code;

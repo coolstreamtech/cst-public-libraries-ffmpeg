@@ -56,7 +56,6 @@
 #define MAX_TRANSFORM_DEPTH 5
 
 #define MAX_TB_SIZE 32
-#define MAX_PB_SIZE 64
 #define MAX_LOG2_CTB_SIZE 6
 #define MAX_QP 51
 #define DEFAULT_INTRA_TC_OFFSET 2
@@ -82,8 +81,6 @@
  */
 #define SAMPLE(tab, x, y) ((tab)[(y) * s->sps->width + (x)])
 #define SAMPLE_CTB(tab, x, y) ((tab)[(y) * min_cb_width + (x)])
-#define SAMPLE_CBF(tab, x, y) ((tab)[((y) & ((1<<log2_trafo_size)-1)) * MAX_CU_SIZE + ((x) & ((1<<log2_trafo_size)-1))])
-#define SAMPLE_CBF2(tab, x, y) ((tab)[(y) * MAX_CU_SIZE +  (x)])
 
 #define IS_IDR(s) ((s)->nal_unit_type == NAL_IDR_W_RADL || (s)->nal_unit_type == NAL_IDR_N_LP)
 #define IS_BLA(s) ((s)->nal_unit_type == NAL_BLA_W_RADL || (s)->nal_unit_type == NAL_BLA_W_LP || \
@@ -260,6 +257,7 @@ enum SAOType {
     SAO_NOT_APPLIED = 0,
     SAO_BAND,
     SAO_EDGE,
+    SAO_APPLIED
 };
 
 enum SAOEOClass {
@@ -300,10 +298,10 @@ typedef struct RefPicListTab {
 } RefPicListTab;
 
 typedef struct HEVCWindow {
-    int left_offset;
-    int right_offset;
-    int top_offset;
-    int bottom_offset;
+    unsigned int left_offset;
+    unsigned int right_offset;
+    unsigned int top_offset;
+    unsigned int bottom_offset;
 } HEVCWindow;
 
 typedef struct VUI {
@@ -577,6 +575,8 @@ typedef struct SliceHeader {
     uint8_t colour_plane_id;
 
     ///< RPS coded in the slice header itself is stored here
+    int short_term_ref_pic_set_sps_flag;
+    int short_term_ref_pic_set_size;
     ShortTermRPS slice_rps;
     const ShortTermRPS *short_term_rps;
     LongTermRPS long_term_rps;
@@ -633,20 +633,12 @@ typedef struct SliceHeader {
     int slice_ctb_addr_rs;
 } SliceHeader;
 
-typedef struct CodingTree {
-    int depth; ///< ctDepth
-} CodingTree;
-
 typedef struct CodingUnit {
     int x;
     int y;
 
     enum PredMode pred_mode;    ///< PredMode
     enum PartMode part_mode;    ///< PartMode
-
-    uint8_t rqt_root_cbf;
-
-    uint8_t pcm_flag;
 
     // Inferred parameters
     uint8_t intra_split_flag;   ///< IntraSplitFlag
@@ -660,7 +652,7 @@ typedef struct Mv {
 } Mv;
 
 typedef struct MvField {
-    Mv mv[2];
+    DECLARE_ALIGNED(4, Mv, mv)[2];
     int8_t ref_idx[2];
     int8_t pred_flag;
 } MvField;
@@ -684,17 +676,7 @@ typedef struct PredictionUnit {
     uint8_t chroma_mode_c[4];
 } PredictionUnit;
 
-typedef struct TransformTree {
-    uint8_t cbf_cb[MAX_TRANSFORM_DEPTH][MAX_CU_SIZE * MAX_CU_SIZE];
-    uint8_t cbf_cr[MAX_TRANSFORM_DEPTH][MAX_CU_SIZE * MAX_CU_SIZE];
-    uint8_t cbf_luma;
-
-    // Inferred parameters
-    uint8_t inter_split_flag;
-} TransformTree;
-
 typedef struct TransformUnit {
-    DECLARE_ALIGNED(32, int16_t, coeffs[2][MAX_TB_SIZE * MAX_TB_SIZE]);
     int cu_qp_delta;
 
     int res_scale_val;
@@ -718,6 +700,7 @@ typedef struct DBParams {
 #define HEVC_FRAME_FLAG_OUTPUT    (1 << 0)
 #define HEVC_FRAME_FLAG_SHORT_REF (1 << 1)
 #define HEVC_FRAME_FLAG_LONG_REF  (1 << 2)
+#define HEVC_FRAME_FLAG_BUMPING   (1 << 3)
 
 typedef struct HEVCFrame {
     AVFrame *frame;
@@ -734,6 +717,9 @@ typedef struct HEVCFrame {
     AVBufferRef *tab_mvf_buf;
     AVBufferRef *rpl_tab_buf;
     AVBufferRef *rpl_buf;
+
+    AVBufferRef *hwaccel_priv_buf;
+    void *hwaccel_picture_private;
 
     /**
      * A sequence counter, so that old frames are output first
@@ -753,10 +739,12 @@ typedef struct HEVCNAL {
 
     int size;
     const uint8_t *data;
+
+    int raw_size;
+    const uint8_t *raw_data;
 } HEVCNAL;
 
 typedef struct HEVCLocalContext {
-    DECLARE_ALIGNED(16, int16_t, mc_buffer[(MAX_PB_SIZE + 7) * MAX_PB_SIZE]);
     uint8_t cabac_state[HEVC_CONTEXTS];
 
     uint8_t stat_coeff[4];
@@ -765,7 +753,6 @@ typedef struct HEVCLocalContext {
 
     GetBitContext gb;
     CABACContext cc;
-    TransformTree tt;
 
     int8_t qp_y;
     int8_t curr_qp_y;
@@ -782,15 +769,22 @@ typedef struct HEVCLocalContext {
     int     end_of_tiles_y;
     /* +7 is for subpixel interpolation, *2 for high bit depths */
     DECLARE_ALIGNED(32, uint8_t, edge_emu_buffer)[(MAX_PB_SIZE + 7) * EDGE_EMU_BUFFER_STRIDE * 2];
+    /* The extended size between the new edge emu buffer is abused by SAO */
     DECLARE_ALIGNED(32, uint8_t, edge_emu_buffer2)[(MAX_PB_SIZE + 7) * EDGE_EMU_BUFFER_STRIDE * 2];
+    DECLARE_ALIGNED(32, int16_t, tmp [MAX_PB_SIZE * MAX_PB_SIZE]);
 
-    CodingTree ct;
+    int ct_depth;
     CodingUnit cu;
     PredictionUnit pu;
     NeighbourAvailable na;
 
-    uint8_t slice_or_tiles_left_boundary;
-    uint8_t slice_or_tiles_up_boundary;
+#define BOUNDARY_LEFT_SLICE     (1 << 0)
+#define BOUNDARY_LEFT_TILE      (1 << 1)
+#define BOUNDARY_UPPER_SLICE    (1 << 2)
+#define BOUNDARY_UPPER_TILE     (1 << 3)
+    /* properties of the boundary of the current CTB for the purposes
+     * of the deblocking filter */
+    int boundary_flags;
 } HEVCLocalContext;
 
 typedef struct HEVCContext {
@@ -814,9 +808,9 @@ typedef struct HEVCContext {
     uint8_t slice_initialized;
 
     AVFrame *frame;
-    AVFrame *sao_frame;
-    AVFrame *tmp_frame;
     AVFrame *output_frame;
+    uint8_t *sao_pixel_buffer_h[3];
+    uint8_t *sao_pixel_buffer_v[3];
 
     const HEVCVPS *vps;
     const HEVCSPS *sps;
@@ -824,8 +818,6 @@ typedef struct HEVCContext {
     AVBufferRef *vps_list[MAX_VPS_COUNT];
     AVBufferRef *sps_list[MAX_SPS_COUNT];
     AVBufferRef *pps_list[MAX_PPS_COUNT];
-
-    AVBufferRef *current_sps;
 
     AVBufferPool *tab_mvf_pool;
     AVBufferPool *rpl_tab_pool;
@@ -1015,6 +1007,8 @@ int ff_hevc_set_new_ref(HEVCContext *s, AVFrame **frame, int poc);
  */
 int ff_hevc_output_frame(HEVCContext *s, AVFrame *frame, int flush);
 
+void ff_hevc_bump_frame(HEVCContext *s);
+
 void ff_hevc_unref_frame(HEVCContext *s, HEVCFrame *frame, int flags);
 
 void ff_hevc_set_neighbour_available(HEVCContext *s, int x0, int y0,
@@ -1026,7 +1020,7 @@ void ff_hevc_luma_mv_mvp_mode(HEVCContext *s, int x0, int y0,
                               int nPbW, int nPbH, int log2_cb_size,
                               int part_idx, int merge_idx,
                               MvField *mv, int mvp_lx_flag, int LX);
-void ff_hevc_set_qPy(HEVCContext *s, int xC, int yC, int xBase, int yBase,
+void ff_hevc_set_qPy(HEVCContext *s, int xBase, int yBase,
                      int log2_cb_size);
 void ff_hevc_deblocking_boundary_strengths(HEVCContext *s, int x0, int y0,
                                            int log2_trafo_size);
