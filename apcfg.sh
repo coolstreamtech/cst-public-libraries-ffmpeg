@@ -1,5 +1,5 @@
 #!/bin/bash
-PREFIX=/opt/arm/arm-pnx8400-linux-uclibcgnueabi/arm-pnx8400-linux-uclibcgnueabi/sys-root/usr
+PREFIX=/opt/arm/arm-cortex-linux-uclibcgnueabi/arm-cortex-linux-uclibcgnueabi/sys-root/usr
 export PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig
 
 export CFLAGS="-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard"
@@ -70,7 +70,21 @@ export CFLAGS="-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard"
 --disable-ffserver \
 --disable-static \
 --disable-filters \
---disable-protocols \
+--enable-librtmp \
+--disable-protocol=data \
+--disable-protocol=cache \
+--disable-protocol=concat \
+--disable-protocol=crypto \
+--disable-protocol=ftp \
+--disable-protocol=gopher \
+--disable-protocol=httpproxy \
+--disable-protocol=pipe \
+--disable-protocol=sctp \
+--disable-protocol=srtp \
+--disable-protocol=subfile \
+--disable-protocol=unix \
+--disable-protocol=md5 \
+--disable-protocol=hls \
 --enable-protocol=file \
 --enable-protocol=http \
 --enable-protocol=rtmp \
@@ -79,6 +93,9 @@ export CFLAGS="-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard"
 --enable-protocol=rtmpte \
 --enable-protocol=mmsh \
 --enable-protocol=mmst \
+--enable-protocol=rtp \
+--enable-protocol=tcp \
+--enable-protocol=udp \
 --enable-bsfs \
 --disable-devices \
 --enable-swresample \
@@ -97,8 +114,8 @@ export CFLAGS="-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard"
 --target-os=linux \
 --arch=arm \
 --disable-neon \
---cross-prefix=arm-pnx8400-linux-uclibcgnueabi- \
---prefix=/opt/arm/arm-pnx8400-linux-uclibcgnueabi/arm-pnx8400-linux-uclibcgnueabi/sys-root/usr $*
+--cross-prefix=arm-cortex-linux-uclibcgnueabi- \
+--prefix=/opt/arm/arm-cortex-linux-uclibcgnueabi/arm-cortex-linux-uclibcgnueabi/sys-root/usr $*
 
 #--enable-decoder=h264 \
 #--enable-decoder=mpeg4video \
