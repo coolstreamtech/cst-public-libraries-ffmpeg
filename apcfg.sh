@@ -63,6 +63,7 @@ export CFLAGS="-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard"
 --enable-demuxer=ogg \
 --enable-demuxer=flac \
 --enable-demuxer=srt \
+--enable-demuxer=hds \
 --disable-encoders \
 --disable-muxers \
 --disable-ffplay \
@@ -85,8 +86,10 @@ export CFLAGS="-mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard"
 --disable-protocol=unix \
 --disable-protocol=md5 \
 --disable-protocol=hls \
+--enable-openssl \
 --enable-protocol=file \
 --enable-protocol=http \
+--enable-protocol=https \
 --enable-protocol=rtmp \
 --enable-protocol=rtmpe \
 --enable-protocol=rtmps \
