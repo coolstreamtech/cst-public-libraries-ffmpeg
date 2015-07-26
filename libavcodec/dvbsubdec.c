@@ -919,7 +919,7 @@ static int save_subtitle_set(AVCodecContext *avctx, AVSubtitle *sub, int *got_ou
 
             memcpy(rect->pict.data[0], region->pbuf, region->buf_size);
 
-            if (clut == &default_clut)
+            if ((clut == &default_clut && ctx->compute_clut == -1) || ctx->compute_clut == 1)
                 compute_default_clut(&rect->pict, rect->w, rect->h);
 
             i++;
