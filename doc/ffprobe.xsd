@@ -87,6 +87,7 @@
       </xsd:sequence>
 
       <xsd:attribute name="media_type"    type="xsd:string" use="required"/>
+      <xsd:attribute name="stream_index"  type="xsd:int"  />
       <xsd:attribute name="key_frame"     type="xsd:int"    use="required"/>
       <xsd:attribute name="pts"           type="xsd:long" />
       <xsd:attribute name="pts_time"      type="xsd:float"/>
@@ -169,9 +170,6 @@
     <xsd:complexType name="streamType">
       <xsd:sequence>
         <xsd:element name="disposition" type="ffprobe:streamDispositionType" minOccurs="0" maxOccurs="1"/>
-        <xsd:element name="tag" type="ffprobe:tagType" minOccurs="0" maxOccurs="unbounded"/>
-      </xsd:sequence>
-      <xsd:sequence>
         <xsd:element name="tag" type="ffprobe:tagType" minOccurs="0" maxOccurs="unbounded"/>
         <xsd:element name="side_data_list" type="ffprobe:packetSideDataListType"   minOccurs="0" maxOccurs="1" />
       </xsd:sequence>
@@ -275,6 +273,8 @@
     <xsd:complexType name="programVersionType">
       <xsd:attribute name="version"          type="xsd:string" use="required"/>
       <xsd:attribute name="copyright"        type="xsd:string" use="required"/>
+      <xsd:attribute name="build_date"       type="xsd:string"/>
+      <xsd:attribute name="build_time"       type="xsd:string"/>
       <xsd:attribute name="compiler_ident"   type="xsd:string" use="required"/>
       <xsd:attribute name="configuration"    type="xsd:string" use="required"/>
     </xsd:complexType>

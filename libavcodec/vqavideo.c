@@ -231,6 +231,12 @@ static int decode_format80(VqaContext *s, int src_size,
     unsigned char color;
     int i;
 
+    if (src_size < 0 || src_size > bytestream2_get_bytes_left(&s->gb)) {
+        av_log(s->avctx, AV_LOG_ERROR, "Chunk size %d is out of range\n",
+               src_size);
+        return AVERROR_INVALIDDATA;
+    }
+
     start = bytestream2_tell(&s->gb);
     while (bytestream2_tell(&s->gb) - start < src_size) {
         opcode = bytestream2_get_byte(&s->gb);
@@ -644,5 +650,5 @@ AVCodec ff_vqa_decoder = {
     .init           = vqa_decode_init,
     .close          = vqa_decode_end,
     .decode         = vqa_decode_frame,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
 };

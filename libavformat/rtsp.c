@@ -179,7 +179,8 @@ static void rtsp_parse_range_npt(const char *p, int64_t *start, int64_t *end)
     if (*p == '-') {
         p++;
         get_word_sep(buf, sizeof(buf), "-", &p);
-        av_parse_time(end, buf, 1);
+        if (av_parse_time(end, buf, 1) < 0)
+            av_log(NULL, AV_LOG_DEBUG, "Failed to parse interval end specification '%s'\n", buf);
     }
 }
 
@@ -1154,8 +1155,7 @@ start:
                 return AVERROR_EOF;
             if (ch == '\n')
                 break;
-            if (ch == '$') {
-                /* XXX: only parse it if first char on line ? */
+            if (ch == '$' && q == buf) {
                 if (return_on_interleaved_data) {
                     return 1;
                 } else

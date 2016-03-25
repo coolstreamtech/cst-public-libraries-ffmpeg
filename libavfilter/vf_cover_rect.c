@@ -53,13 +53,7 @@ static const AVOption cover_rect_options[] = {
     { NULL }
 };
 
-static const AVClass cover_rect_class = {
-    .class_name       = "cover_rect",
-    .item_name        = av_default_item_name,
-    .option           = cover_rect_options,
-    .version          = LIBAVUTIL_VERSION_INT,
-    .category         = AV_CLASS_CATEGORY_FILTER,
-};
+AVFILTER_DEFINE_CLASS(cover_rect);
 
 static int query_formats(AVFilterContext *ctx)
 {
@@ -132,7 +126,7 @@ static void blur(CoverContext *cover, AVFrame *in, int offx, int offy)
                     s += data[x + h*stride] * scale;
                     c += scale;
                 }
-                data[x + y*stride] = (s + (c>>1)) / c;
+                data[x + y*stride] = c ? (s + (c>>1)) / c : 0;
             }
         }
     }

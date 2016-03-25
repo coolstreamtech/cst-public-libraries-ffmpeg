@@ -1765,9 +1765,9 @@ static void show_packet(WriterContext *w, AVFormatContext *fmt_ctx, AVPacket *pk
         writer_print_section_header(w, SECTION_ID_PACKET_SIDE_DATA_LIST);
         for (i = 0; i < pkt->side_data_elems; i++) {
             AVPacketSideData *sd = &pkt->side_data[i];
-            const char *name;
+            const char *name = av_packet_side_data_name(sd->type);
             writer_print_section_header(w, SECTION_ID_PACKET_SIDE_DATA);
-            print_str("side_data_type", "unknown");
+            print_str("side_data_type", name ? name : "unknown");
             print_int("side_data_size", sd->size);
             if (sd->type == AV_PKT_DATA_DISPLAYMATRIX && sd->size >= 9*4) {
                 writer_print_integers(w, "displaymatrix", sd->data, 9, " %11d", 3, 4, 1);
@@ -1824,6 +1824,7 @@ static void show_frame(WriterContext *w, AVFrame *frame, AVStream *stream,
     s = av_get_media_type_string(stream->codec->codec_type);
     if (s) print_str    ("media_type", s);
     else   print_str_opt("media_type", "unknown");
+    print_int("stream_index",           stream->index);
     print_int("key_frame",              frame->key_frame);
     print_ts  ("pkt_pts",               frame->pkt_pts);
     print_time("pkt_pts_time",          frame->pkt_pts, &stream->time_base);
@@ -2306,9 +2307,10 @@ static int show_stream(WriterContext *w, AVFormatContext *fmt_ctx, int stream_id
         writer_print_section_header(w, SECTION_ID_STREAM_SIDE_DATA_LIST);
         for (i = 0; i < stream->nb_side_data; i++) {
             AVPacketSideData *sd = &stream->side_data[i];
-            const char *name;
+            const char *name = av_packet_side_data_name(sd->type);
+
             writer_print_section_header(w, SECTION_ID_STREAM_SIDE_DATA);
-            print_str("side_data_type", "unknown");
+            print_str("side_data_type", name ? name : "unknown");
             print_int("side_data_size", sd->size);
             if (sd->type == AV_PKT_DATA_DISPLAYMATRIX && sd->size >= 9*4) {
                 writer_print_integers(w, "displaymatrix", sd->data, 9, " %11d", 3, 4, 1);
@@ -2828,6 +2830,9 @@ static int opt_show_format_entry(void *optctx, const char *opt, const char *arg)
 {
     char *buf = av_asprintf("format=%s", arg);
     int ret;
+
+    if (!buf)
+        return AVERROR(ENOMEM);
 
     av_log(NULL, AV_LOG_WARNING,
            "Option '%s' is deprecated, use '-show_entries format=%s' instead\n",

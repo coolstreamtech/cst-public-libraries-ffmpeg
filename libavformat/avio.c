@@ -156,9 +156,16 @@ static int url_alloc_for_protocol(URLContext **puc, struct URLProtocol *up,
                 char sep= *++p;
                 char *key, *val;
                 p++;
+
+                if (strcmp(up->name, "subfile"))
+                    ret = AVERROR(EINVAL);
+
                 while(ret >= 0 && (key= strchr(p, sep)) && p<key && (val = strchr(key+1, sep))){
                     *val= *key= 0;
-                    ret= av_opt_set(uc->priv_data, p, key+1, 0);
+                    if (strcmp(p, "start") && strcmp(p, "end")) {
+                        ret = AVERROR_OPTION_NOT_FOUND;
+                    } else
+                        ret= av_opt_set(uc->priv_data, p, key+1, 0);
                     if (ret == AVERROR_OPTION_NOT_FOUND)
                         av_log(uc, AV_LOG_ERROR, "Key '%s' not found.\n", p);
                     *val= *key= sep;
@@ -211,6 +218,26 @@ int ffurl_connect(URLContext *uc, AVDictionary **options)
     return 0;
 }
 
+int ffurl_accept(URLContext *s, URLContext **c)
+{
+    av_assert0(!*c);
+    if (s->prot->url_accept)
+        return s->prot->url_accept(s, c);
+    return AVERROR(EBADF);
+}
+
+int ffurl_handshake(URLContext *c)
+{
+    int ret;
+    if (c->prot->url_handshake) {
+        ret = c->prot->url_handshake(c);
+        if (ret)
+            return ret;
+    }
+    c->is_connected = 1;
+    return 0;
+}
+
 #define URL_SCHEME_CHARS                        \
     "abcdefghijklmnopqrstuvwxyz"                \
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"                \
@@ -223,7 +250,7 @@ static struct URLProtocol *url_find_protocol(const char *filename)
     size_t proto_len = strspn(filename, URL_SCHEME_CHARS);
 
     if (filename[proto_len] != ':' &&
-        (filename[proto_len] != ',' || !strchr(filename + proto_len + 1, ':')) ||
+        (strncmp(filename, "subfile,", 8) || !strchr(filename + proto_len + 1, ':')) ||
         is_dos_path(filename))
         strcpy(proto_str, "file");
     else
@@ -263,7 +290,9 @@ int ffurl_alloc(URLContext **puc, const char *filename, int flags,
 
     *puc = NULL;
     if (av_strstart(filename, "https:", NULL))
-        av_log(NULL, AV_LOG_WARNING, "https protocol not found, recompile with openssl or gnutls enabled.\n");
+        av_log(NULL, AV_LOG_WARNING, "https protocol not found, recompile FFmpeg with "
+                                     "openssl, gnutls,\n"
+                                     "or securetransport enabled.\n");
     return AVERROR_PROTOCOL_NOT_FOUND;
 }
 
@@ -419,6 +448,44 @@ int avio_check(const char *url, int flags)
     return ret;
 }
 
+int avpriv_io_move(const char *url_src, const char *url_dst)
+{
+    URLContext *h_src, *h_dst;
+    int ret = ffurl_alloc(&h_src, url_src, AVIO_FLAG_READ_WRITE, NULL);
+    if (ret < 0)
+        return ret;
+    ret = ffurl_alloc(&h_dst, url_dst, AVIO_FLAG_WRITE, NULL);
+    if (ret < 0) {
+        ffurl_close(h_src);
+        return ret;
+    }
+
+    if (h_src->prot == h_dst->prot && h_src->prot->url_move)
+        ret = h_src->prot->url_move(h_src, h_dst);
+    else
+        ret = AVERROR(ENOSYS);
+
+    ffurl_close(h_src);
+    ffurl_close(h_dst);
+    return ret;
+}
+
+int avpriv_io_delete(const char *url)
+{
+    URLContext *h;
+    int ret = ffurl_alloc(&h, url, AVIO_FLAG_WRITE, NULL);
+    if (ret < 0)
+        return ret;
+
+    if (h->prot->url_delete)
+        ret = h->prot->url_delete(h);
+    else
+        ret = AVERROR(ENOSYS);
+
+    ffurl_close(h);
+    return ret;
+}
+
 int avio_open_dir(AVIODirContext **s, const char *url, AVDictionary **options)
 {
     URLContext *h = NULL;
@@ -445,6 +512,7 @@ int avio_open_dir(AVIODirContext **s, const char *url, AVDictionary **options)
     if (ret < 0)
         goto fail;
 
+    h->is_connected = 1;
     ctx->url_context = h;
     *s = ctx;
     return 0;
